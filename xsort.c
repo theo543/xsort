@@ -9,9 +9,14 @@
 #include <inttypes.h>
 
 #include <unistd.h>
+#include <fcntl.h>
+#include <signal.h>
+
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
+
+void run_sort(int64_t *buf, int bufLen, int actionIdx);
 
 static void drawButton(const char *text, int x, int y, Display *display, Window window, GC borderGC, GC fillGC, GC textGC, XFontStruct *font, int *width, int *height) {
     *width = XTextWidth(font, text, strlen(text)) + 10;
@@ -51,6 +56,10 @@ static const char * const buttonText[] = {
 };
 
 static void insertAt(int64_t **buf, int *bufLen, int bufSelection, int64_t inputNr) {
+    if(*bufLen == INT_MAX) {
+        fprintf(stderr, "Buffer size too large\n");
+        return;
+    }
     *buf = reallocarray(*buf, *bufLen + 1, sizeof(int64_t));
     if(!*buf) {
         perror("realloc");
@@ -150,7 +159,111 @@ static int64_t *loadBuffer(int *bufLen) {
     return NULL;
 }
 
-int main(void) {
+static char * internal_arg = "--[[internal_sort_subprocess]]--";
+
+static void launch_subproc(int64_t *buf, int bufLen, int actionIdx, char **argv, char **envp) {
+    char arg[256];
+    snprintf(arg, sizeof(arg), "%d:%d", bufLen, actionIdx);
+    int pipefd[2];
+    if(pipe(pipefd) < 0) {
+        perror("pipe");
+        return;
+    }
+    pid_t pid = fork();
+    if(pid < 0) {
+        perror("fork");
+        return;
+    }
+    if(pid == 0) {
+        // child process
+        if(close(pipefd[1]) < 0) {
+            perror("close");
+            exit(1);
+        }
+        if(dup2(pipefd[0], STDIN_FILENO) < 0) {
+            perror("dup2");
+            exit(1);
+        }
+        if(close(pipefd[0]) < 0) {
+            perror("close");
+            exit(1);
+        }
+        int fd = open("/proc/self/exe", O_RDONLY);
+        if(fd < 0) {
+            perror("open");
+            exit(1);
+        }
+        char *args[] = {argv[0], internal_arg, arg, NULL};
+        fexecve(fd, args, envp);
+        perror("fexecve");
+        exit(1);
+    }
+    // parent process
+    if(close(pipefd[0]) < 0) {
+        perror("close");
+        return;
+    }
+    int remaining = bufLen * sizeof(int64_t);
+    char *bufPtr = (char*)buf;
+    while(remaining > 0) {
+        int bytesWritten = write(pipefd[1], bufPtr, remaining);
+        if(bytesWritten < 0) {
+            if(errno == EINTR) {
+                continue;
+            }
+            perror("write");
+            return;
+        }
+        remaining -= bytesWritten;
+        bufPtr += bytesWritten;
+    }
+}
+
+static void init_subproc(char *arg) {
+    int bufLen, actionIdx;
+    if(sscanf(arg, "%d:%d", &bufLen, &actionIdx) != 2) {
+        fprintf(stderr, "Invalid argument\n");
+        exit(1);
+    }
+    int64_t *buf = reallocarray(NULL, bufLen, sizeof(int64_t));
+    if(!buf) {
+        perror("reallocarray");
+        exit(1);
+    }
+    int remaining = bufLen * sizeof(int64_t);
+    char *bufPtr = (char*)buf;
+    while(remaining > 0) {
+        int bytesRead = read(STDIN_FILENO, bufPtr, remaining);
+        if(bytesRead < 0) {
+            if(errno == EINTR) {
+                continue;
+            }
+            perror("read");
+            exit(1);
+        }
+        remaining -= bytesRead;
+        bufPtr += bytesRead;
+    }
+    if(close(STDIN_FILENO) < 0) {
+        perror("close");
+        exit(1);
+    }
+    if(open("/dev/null", O_WRONLY) < 0) {
+        perror("open");
+        exit(1);
+    }
+    run_sort(buf, bufLen, actionIdx);
+    free(buf);
+}
+
+int main(int argc, char **argv, char **envp) {
+    if(argc == 3 && (strcmp(argv[1], internal_arg) == 0)) {
+        init_subproc(argv[2]);
+        return 0;
+    }
+
+    signal(SIGCHLD, SIG_IGN);
+
     struct Button buttons[] = {
         (struct Button){.type = LOAD},
         (struct Button){.type = SAVE},
@@ -360,7 +473,7 @@ int main(void) {
                     saveBuffer(buf, bufLen);
                     break;
                 case LAUNCH:
-                    fprintf(stderr, "Launch button pressed\n");
+                    launch_subproc(buf, bufLen, 0, argv, envp);
                     break;
                 case UP:
                     bufSelection = bufSelection == 0 ? 0 : bufSelection - 1;
