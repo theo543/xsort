@@ -378,8 +378,11 @@ int main(int argc, char **argv, char **envp) {
             const char *dots = "....";
             int numStart = bufSelection;
             int numEnd = bufSelection + 10;
+            for(int i = 0;i < 5 && numStart > 0; i++) {
+                numStart--;
+                numEnd--;
+            }
             if(numEnd > bufLen) {
-                numStart -= numEnd - bufLen;
                 numEnd = bufLen;
             }
             if(numStart > 0) {
