@@ -26,7 +26,7 @@ static void drawButton(const char *text, int x, int y, Display *display, Window 
     XDrawString(display, window, textGC, x + 5, y + *height / 2 + 5, text, strlen(text));
 }
 
-static void fake_expose(Display* dpy, Window win) {
+void fake_expose(Display* dpy, Window win) {
     XEvent e;
     e.type = Expose;
     e.xexpose.window = win;
