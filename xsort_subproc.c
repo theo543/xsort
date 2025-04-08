@@ -10,7 +10,7 @@
 
 void fake_expose(Display* dpy, Window win);
 
-void draw_num_sphere(Display *display, Window window, GC gc, XFontStruct font, int centerX, int centerY, int radius, const char *numStr) {
+static void draw_num_sphere(Display *display, Window window, GC gc, XFontStruct font, int centerX, int centerY, int radius, const char *numStr) {
     int numWidth = XTextWidth(&font, numStr, strlen(numStr));
     int numHeight = font.ascent + font.descent;
     int x = centerX - numWidth / 2;
@@ -19,14 +19,14 @@ void draw_num_sphere(Display *display, Window window, GC gc, XFontStruct font, i
     XDrawString(display, window, gc, x, y + font.ascent, numStr, strlen(numStr));
 }
 
-void erase_num_sphere(Display *display, Window window, GC gc, int centerX, int centerY, int radius) {
+static void erase_num_sphere(Display *display, Window window, GC gc, int centerX, int centerY, int radius) {
     radius += 2;
     XSetForeground(display, gc, WhitePixel(display, DefaultScreen(display)));
     XFillArc(display, window, gc, centerX - radius, centerY - radius, 2 * radius, 2 * radius, 0, 360 * 64);
     XSetForeground(display, gc, BlackPixel(display, DefaultScreen(display)));
 }
 
-time_t get_time_usec(void) {
+static time_t get_time_usec(void) {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
     return ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
