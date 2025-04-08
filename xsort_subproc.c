@@ -33,6 +33,7 @@ time_t get_time_usec(void) {
 }
 
 void run_sort(int64_t *buf, int bufLen, int actionIdx) {
+    (void)actionIdx; // TODO: actionIdx specifies sorting algorithm
     char **numStr = reallocarray(NULL, bufLen, sizeof(char*));
     char *strBuf = reallocarray(NULL, bufLen, 22);
     char *bufPtr = strBuf;
@@ -78,6 +79,9 @@ void run_sort(int64_t *buf, int bufLen, int actionIdx) {
     int windowWidth = 400;
 
     Window window = XCreateSimpleWindow(display, DefaultRootWindow(display), 0, 0, windowWidth, windowHeight, 0, blackColor, whiteColor);
+    char titleBuf[128];
+    snprintf(titleBuf, sizeof(titleBuf), "XSort: sorting %d numbers", bufLen);
+    XStoreName(display, window, titleBuf);
     XSelectInput(display, window, StructureNotifyMask);
     GC gc = XCreateGC(display, window, 0, NULL);
     XSetFont(display, gc, font->fid);

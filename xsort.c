@@ -312,6 +312,7 @@ int main(int argc, char **argv, char **envp) {
     }
 
     Window window = XCreateSimpleWindow(display, DefaultRootWindow(display), 0, 0, 400, 400, 0, blackColor, lightGrayColor);
+    XStoreName(display, window, "XSort");
     XSelectInput(display, window, StructureNotifyMask);
     XMapWindow(display, window);
 
