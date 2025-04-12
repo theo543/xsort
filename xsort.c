@@ -16,7 +16,8 @@
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
 
-void run_sort(int64_t *buf, int bufLen, int actionIdx);
+#include "utils.h"
+#include "xsort_subproc.h"
 
 static void drawButton(const char *text, int x, int y, Display *display, Window window, GC borderGC, GC fillGC, GC textGC, XFontStruct *font, int *width, int *height) {
     *width = XTextWidth(font, text, strlen(text)) + 10;
@@ -24,19 +25,6 @@ static void drawButton(const char *text, int x, int y, Display *display, Window 
     XDrawRectangle(display, window, borderGC, x, y, *width, *height);
     XFillRectangle(display, window, fillGC, x + 1, y + 1, *width - 2, *height - 2);
     XDrawString(display, window, textGC, x + 5, y + *height / 2 + 5, text, strlen(text));
-}
-
-void fake_expose(Display* dpy, Window win) {
-    XEvent e;
-    e.type = Expose;
-    e.xexpose.window = win;
-    e.xexpose.x = 0;
-    e.xexpose.y = 0;
-    e.xexpose.width = 0;
-    e.xexpose.height = 0;
-    e.xexpose.count = 0;
-    XSendEvent(dpy, win, False, ExposureMask, &e);
-    XFlush(dpy);
 }
 
 struct Button {
@@ -159,110 +147,49 @@ static int64_t *loadBuffer(int *bufLen) {
     return NULL;
 }
 
-static char * internal_arg = "--[[internal_sort_subprocess]]--";
-
-static void launch_subproc(int64_t *buf, int bufLen, int actionIdx, char **argv, char **envp) {
-    char arg[256];
-    snprintf(arg, sizeof(arg), "%d:%d", bufLen, actionIdx);
-    int pipefd[2];
-    if(pipe(pipefd) < 0) {
-        perror("pipe");
-        return;
-    }
-    pid_t pid = fork();
-    if(pid < 0) {
+int launch_fork_server(void) {
+    int fork_server_fd[2];
+    pipe_(fork_server_fd);
+    pid_t fork_server_pid = fork();
+    if(fork_server_pid < 0) {
         perror("fork");
-        return;
-    }
-    if(pid == 0) {
-        // child process
-        if(close(pipefd[1]) < 0) {
-            perror("close");
-            exit(1);
-        }
-        if(dup2(pipefd[0], STDIN_FILENO) < 0) {
-            perror("dup2");
-            exit(1);
-        }
-        if(close(pipefd[0]) < 0) {
-            perror("close");
-            exit(1);
-        }
-        int fd = open("/proc/self/exe", O_RDONLY);
-        if(fd < 0) {
-            perror("open");
-            exit(1);
-        }
-        char *args[] = {argv[0], internal_arg, arg, NULL};
-        fexecve(fd, args, envp);
-        perror("fexecve");
         exit(1);
     }
-    // parent process
-    if(close(pipefd[0]) < 0) {
-        perror("close");
-        return;
+    if(fork_server_pid != 0) {
+        close_(fork_server_fd[0]);
+        return fork_server_fd[1];
     }
-    int remaining = bufLen * sizeof(int64_t);
-    char *bufPtr = (char*)buf;
-    while(remaining > 0) {
-        int bytesWritten = write(pipefd[1], bufPtr, remaining);
-        if(bytesWritten < 0) {
-            if(errno == EINTR) {
-                continue;
-            }
-            perror("write");
-            return;
+    close_(fork_server_fd[1]);
+    char *buf = NULL;
+    while(1) {
+        int bufLen = read_int(fork_server_fd[0]);
+        if(bufLen == -1) {
+            close_(fork_server_fd[0]);
+            exit(0);
         }
-        remaining -= bytesWritten;
-        bufPtr += bytesWritten;
+        buf = reallocarray(buf, bufLen, sizeof(int64_t));
+        if(!buf) {
+            perror("reallocarray");
+            exit(1);
+        }
+        read_(fork_server_fd[0], (char*)buf, bufLen * sizeof(int64_t));
+        pid_t sort_pid = fork();
+        if(sort_pid < 0) {
+            perror("fork");
+            exit(1);
+        }
+        if(sort_pid == 0) {
+            close_(fork_server_fd[0]);
+            run_sort((int64_t*)buf, bufLen, 0);
+            free(buf);
+            exit(0);
+        }
     }
 }
 
-static void init_subproc(char *arg) {
-    int bufLen, actionIdx;
-    if(sscanf(arg, "%d:%d", &bufLen, &actionIdx) != 2) {
-        fprintf(stderr, "Invalid argument\n");
-        exit(1);
-    }
-    int64_t *buf = reallocarray(NULL, bufLen, sizeof(int64_t));
-    if(!buf) {
-        perror("reallocarray");
-        exit(1);
-    }
-    int remaining = bufLen * sizeof(int64_t);
-    char *bufPtr = (char*)buf;
-    while(remaining > 0) {
-        int bytesRead = read(STDIN_FILENO, bufPtr, remaining);
-        if(bytesRead < 0) {
-            if(errno == EINTR) {
-                continue;
-            }
-            perror("read");
-            exit(1);
-        }
-        remaining -= bytesRead;
-        bufPtr += bytesRead;
-    }
-    if(close(STDIN_FILENO) < 0) {
-        perror("close");
-        exit(1);
-    }
-    if(open("/dev/null", O_WRONLY) < 0) {
-        perror("open");
-        exit(1);
-    }
-    run_sort(buf, bufLen, actionIdx);
-    free(buf);
-}
-
-int main(int argc, char **argv, char **envp) {
-    if(argc == 3 && (strcmp(argv[1], internal_arg) == 0)) {
-        init_subproc(argv[2]);
-        return 0;
-    }
-
+int main(void) {
     signal(SIGCHLD, SIG_IGN);
+    int fork_server_fd = launch_fork_server();
 
     struct Button buttons[] = {
         (struct Button){.type = LOAD},
@@ -477,7 +404,12 @@ int main(int argc, char **argv, char **envp) {
                     saveBuffer(buf, bufLen);
                     break;
                 case LAUNCH:
-                    launch_subproc(buf, bufLen, 0, argv, envp);
+                    if(bufLen == 0) {
+                        fprintf(stderr, "Buffer is empty\n");
+                        break;
+                    }
+                    write_int(fork_server_fd, bufLen);
+                    write_(fork_server_fd, (char*)buf, bufLen * sizeof(int64_t));
                     break;
                 case UP:
                     bufSelection = bufSelection == 0 ? 0 : bufSelection - 1;
@@ -514,4 +446,6 @@ int main(int argc, char **argv, char **envp) {
     XFreeColormap(display, colormap);
     XCloseDisplay(display);
     if(buf) free(buf);
+    write_int(fork_server_fd, -1);
+    close_(fork_server_fd);
 }

@@ -8,7 +8,8 @@
 #include <unistd.h>
 #include <X11/Xlib.h>
 
-void fake_expose(Display* dpy, Window win);
+#include "utils.h"
+#include "xsort_subproc.h"
 
 static void draw_num_sphere(Display *display, Window window, GC gc, XFontStruct font, int centerX, int centerY, int radius, const char *numStr) {
     int numWidth = XTextWidth(&font, numStr, strlen(numStr));
