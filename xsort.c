@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <sys/random.h>
 
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
@@ -28,7 +29,7 @@ static void drawButton(const char *text, int x, int y, Display *display, Window 
 }
 
 struct Button {
-    enum { LOAD, SAVE, LAUNCH, UP, DOWN, INSERT, DELETE } type;
+    enum { LOAD, SAVE, LAUNCH, UP, DOWN, INSERT, DELETE, RANDOM } type;
     int x, y;
     int width, height;
 };
@@ -41,6 +42,7 @@ static const char * const buttonText[] = {
     [DOWN] = "Down",
     [INSERT] = "Insert",
     [DELETE] = "Delete",
+    [RANDOM] = "Random"
 };
 
 static void insertAt(int64_t **buf, int *bufLen, int bufSelection, int64_t inputNr) {
@@ -199,6 +201,7 @@ int main(void) {
         (struct Button){.type = DOWN},
         (struct Button){.type = INSERT},
         (struct Button){.type = DELETE},
+        (struct Button){.type = RANDOM}
     };
     const int buttonsLen = sizeof(buttons) / sizeof(buttons[0]);
 
@@ -427,6 +430,16 @@ int main(void) {
                     }
                     deleteAt(&buf, &bufLen, bufSelection);
                     bufSelection = bufSelection == 0 ? 0 : bufSelection - 1;
+                    break;
+                case RANDOM:
+                    while(getrandom(buf, bufLen * sizeof(int64_t), 0) < 0) {
+                        if(errno == EINTR) continue;
+                        perror("getrandom");
+                        break;
+                    }
+                    for(int i = 0; i < bufLen; i++) {
+                        buf[i] %= 100;
+                    }
                     break;
             }
             fake_expose(display, window);
