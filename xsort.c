@@ -373,7 +373,6 @@ int main(void) {
             }
         }
         if(e.type == ButtonPress) {
-            fprintf(stderr, "Mouse button pressed: %d\n", e.xbutton.button);
             if(e.xbutton.button != Button1) {
                 continue;
             }
@@ -386,7 +385,6 @@ int main(void) {
                     break;
                 }
             }
-            fprintf(stderr, "Pressed button: %d\n", pressedButton);
             if(pressedButton == -1) {
                 continue;
             }
@@ -429,7 +427,6 @@ int main(void) {
                     }
                     deleteAt(&buf, &bufLen, bufSelection);
                     bufSelection = bufSelection == 0 ? 0 : bufSelection - 1;
-                    fprintf(stderr, "bufSelection: %d\n", bufSelection);
                     break;
             }
             fake_expose(display, window);
