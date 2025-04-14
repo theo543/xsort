@@ -121,7 +121,7 @@ const char * const algo_names[ALGO_LEN] = {
     "Quick Sort",
 };
 
-static bool get_swap_request(int read_fd, int write_fd, int64_t *buf, int len, int *i, int *j) {
+static bool get_swap_request(int read_fd, int write_fd, int64_t *buf, int len, int *i, int *j, int *comparisions) {
     while(1) {
         int request = read_int(read_fd);
         if(request == FINISH) {
@@ -133,6 +133,7 @@ static bool get_swap_request(int read_fd, int write_fd, int64_t *buf, int len, i
             return true;
         }
         assert(request == COMPARE_SMALLER);
+        (*comparisions)++;
         int a = read_int(read_fd);
         int b = read_int(read_fd);
         assert(a >= 0 && a < len);
@@ -265,7 +266,9 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
     }
     int radius = maxWidth / 2 + 5;
 
-    int windowHeight = (radius * 2 + 10) * 3;
+    int viewportHeight = (radius * 2 + 10) * 3;
+    int statusPaneHeight = font->ascent + font->descent + 10;
+    int windowHeight = viewportHeight + statusPaneHeight;
     const int minWidth = 1600;
     int windowWidth = (10 * (radius * 2 + 10) + 10);
     if(windowWidth < minWidth) {
@@ -288,14 +291,14 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
     XMapWindow(display, window);
 
     int fullWidth = (radius * 2 + 10) * bufLen + 10;
-    Pixmap pixmap = XCreatePixmap(display, window, fullWidth, windowHeight * 4, DefaultDepth(display, DefaultScreen(display)));
-    int baseY = windowHeight * 2;
-    XFillRectangle(display, pixmap, erase_gc, 0, 0, fullWidth, windowHeight * 4);
+    Pixmap pixmap = XCreatePixmap(display, window, fullWidth, viewportHeight * 4, DefaultDepth(display, DefaultScreen(display)));
+    int baseY = viewportHeight * 2;
+    XFillRectangle(display, pixmap, erase_gc, 0, 0, fullWidth, viewportHeight * 4);
 
 #define SPHERE_X(i) ((radius * 2 + 10) * (i) + radius + 5)
 
     for(int i = 0; i < bufLen; i++) {
-        draw_num_sphere(display, pixmap, gc, *font, SPHERE_X(i), windowHeight / 2, radius, numStr[i], baseY);
+        draw_num_sphere(display, pixmap, gc, *font, SPHERE_X(i), viewportHeight / 2, radius, numStr[i], baseY);
     }
 
     time_t frameDuration = 1000000 / 60;
@@ -305,6 +308,8 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
     struct animation_state anim = { .frame = 1, .frames = 0, .state = DOWN_2, .sphereIdx1 = -1, .sphereIdx2 = -1 };
     bool animation_running = true;
     int focusX = SPHERE_X(0);
+    int comparisions = 0;
+    int swaps = 0;
 
     for(;;) {
         time_t time_since_anim = get_time_usec() - last_time;
@@ -314,6 +319,7 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
 
                 if(anim.state == DOWN_2) {
                     if(anim.sphereIdx1 != -1) {
+                        swaps++;
                         int64_t tmp_i = buf[anim.sphereIdx1];
                         buf[anim.sphereIdx1] = buf[anim.sphereIdx2];
                         buf[anim.sphereIdx2] = tmp_i;
@@ -323,7 +329,7 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
                     }
 
                     int nextSphere1, nextSphere2;
-                    if(!get_swap_request(algorithm_read_fd, algorithm_write_fd, buf, bufLen, &nextSphere1, &nextSphere2)) {
+                    if(!get_swap_request(algorithm_read_fd, algorithm_write_fd, buf, bufLen, &nextSphere1, &nextSphere2, &comparisions)) {
                         animation_running = false;
                         close_(algorithm_read_fd);
                         close_(algorithm_write_fd);
@@ -338,7 +344,7 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
                     case INIT:
                         // move sphere 1 down
                         anim.x = anim.startX = SPHERE_X(anim.sphereIdx1);
-                        anim.y = anim.startY = windowHeight / 2;
+                        anim.y = anim.startY = viewportHeight / 2;
                         anim.targetX = anim.x;
                         anim.targetY = anim.y + radius * 2 + 10;
                         anim.frames = frames_per_animation_vertical;
@@ -354,22 +360,22 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
                     case RIGHT_1:
                         // move sphere 2 up to not overlap with sphere 1
                         anim.startX = anim.x;
-                        anim.y = anim.startY = windowHeight / 2;
+                        anim.y = anim.startY = viewportHeight / 2;
                         anim.targetY = anim.y - radius * 2 - 10;
                         anim.frames = frames_per_animation_vertical;
                         anim.state = UP_2;
                         break;
                     case UP_2:
                         // move sphere 1 up
-                        anim.y = anim.startY = windowHeight / 2 + radius * 2 + 10;
-                        anim.targetY = windowHeight / 2;
+                        anim.y = anim.startY = viewportHeight / 2 + radius * 2 + 10;
+                        anim.targetY = viewportHeight / 2;
                         anim.frames = frames_per_animation_vertical;
                         anim.state = UP_1;
                         break;
                     case UP_1:
                         // move sphere 2 left
                         anim.startX = anim.x;
-                        anim.startY = anim.y = windowHeight / 2 - radius * 2 - 10;
+                        anim.startY = anim.y = viewportHeight / 2 - radius * 2 - 10;
                         anim.targetX = SPHERE_X(anim.sphereIdx1);
                         anim.targetY = anim.y;
                         anim.frames = frames_per_animation_horizontal;
@@ -379,7 +385,7 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
                         // move sphere 2 down
                         anim.startX = anim.x;
                         anim.startY = anim.y;
-                        anim.targetY = windowHeight / 2;
+                        anim.targetY = viewportHeight / 2;
                         anim.frames = frames_per_animation_vertical;
                         anim.state = DOWN_2;
                         break;
@@ -413,7 +419,10 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
         }
         if(e.type == Expose) {
             XClearWindow(display, window);
-            XCopyArea(display, pixmap, window, gc, focusX - windowWidth / 2, baseY, windowWidth, windowHeight, 0, 0);
+            XCopyArea(display, pixmap, window, gc, focusX - windowWidth / 2, baseY, windowWidth, viewportHeight, 0, 0);
+            char statusBuf[256];
+            snprintf(statusBuf, sizeof(statusBuf), "%s: %d comparisons, %d swaps", algo_names[algoSelection], comparisions, swaps);
+            XDrawString(display, window, gc, 10, viewportHeight + font->ascent + font->descent + 5, statusBuf, strlen(statusBuf));
             XFlush(display);
         }
     }
