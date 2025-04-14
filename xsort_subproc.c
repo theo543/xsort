@@ -315,7 +315,7 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
     int viewportHeight = (radius * 2 + 10) * 3;
     int statusPaneHeight = font->ascent + font->descent + 10;
     int windowHeight = viewportHeight + statusPaneHeight;
-    const int minWidth = 1600;
+    const int minWidth = 800;
     int windowWidth = (10 * (radius * 2 + 10) + 10);
     if(windowWidth < minWidth) {
         windowWidth = minWidth;
