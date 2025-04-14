@@ -1,3 +1,4 @@
+#define _DEFAULT_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -10,6 +11,7 @@
 
 #include <unistd.h>
 #include <X11/Xlib.h>
+#include <X11/keysym.h>
 
 #include "utils.h"
 #include "xsort_subproc.h"
@@ -181,13 +183,13 @@ static bool get_swap_request(int read_fd, int write_fd, int64_t *buf, int len, i
     }
 }
 
-static void draw_num_sphere(Display *display, Window window, GC gc, XFontStruct font, int sphereCenterX, int sphereCenterY, int radius, const char *numStr, int baseY) {
-    int numWidth = XTextWidth(&font, numStr, strlen(numStr));
-    int numHeight = font.ascent + font.descent;
+static void draw_num_sphere(Display *display, Window window, GC gc, XFontStruct *font, int sphereCenterX, int sphereCenterY, int radius, const char *numStr, int baseY) {
+    int numWidth = XTextWidth(font, numStr, strlen(numStr));
+    int numHeight = font->ascent + font->descent;
     int x = sphereCenterX - numWidth / 2;
     int y = sphereCenterY - numHeight / 2;
     XDrawArc(display, window, gc, sphereCenterX - radius, baseY + sphereCenterY - radius, 2 * radius, 2 * radius, 0, 360 * 64);
-    XDrawString(display, window, gc, x, baseY + y + font.ascent, numStr, strlen(numStr));
+    XDrawString(display, window, gc, x, baseY + y + font->ascent, numStr, strlen(numStr));
 }
 
 static void erase_num_sphere(Display *display, Window window, GC gc, int sphereCenterX, int sphereCenterY, int radius, int baseY) {
@@ -205,16 +207,16 @@ struct animation_state {
     int x, y;
     int startX, startY;
     int targetX, targetY;
-    int frame;
-    int frames;
+    int progress;
+    int end;
     int sphereIdx1;
     int sphereIdx2;
     enum { INIT, DOWN_1, RIGHT_1, UP_2, UP_1, LEFT_2, DOWN_2 } state;
 };
 
 static void update_anim_position(struct animation_state *anim) {
-    assert(anim->frame <= anim->frames);
-    double percent = (double)anim->frame / anim->frames;
+    assert(anim->progress <= anim->end);
+    double percent = (double)anim->progress / anim->end;
     double x = anim->startX + (anim->targetX - anim->startX) * percent;
     double y = anim->startY + (anim->targetY - anim->startY) * percent;
     anim->x = (int)x;
@@ -258,6 +260,11 @@ static void verify_sort(int64_t *buf, int bufLen, const char *algoName) {
         }
     }
     fprintf(stderr, "%s: sort completed successfully\n", algoName);
+}
+
+char *get_anim_str(struct animation_state *anim, char **numStr) {
+    bool is_sphere_1 = anim->state == DOWN_1 || anim->state == RIGHT_1 || anim->state == UP_1;
+    return numStr[is_sphere_1 ? anim->sphereIdx1 : anim->sphereIdx2];
 }
 
 void run_sort(int64_t *buf, int bufLen, int algoSelection) {
@@ -326,7 +333,7 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
     XSetForeground(display, erase_gc, whiteColor);
     Atom WM_DELETE_WINDOW = XInternAtom(display, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(display, window, &WM_DELETE_WINDOW, 1);
-    XSelectInput(display, window, ExposureMask);
+    XSelectInput(display, window, ExposureMask | KeyPressMask);
     XMapWindow(display, window);
 
     int fullWidth = (radius * 2 + 10) * bufLen + 10;
@@ -337,14 +344,15 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
 #define SPHERE_X(i) ((radius * 2 + 10) * (i) + radius + 5)
 
     for(int i = 0; i < bufLen; i++) {
-        draw_num_sphere(display, pixmap, gc, *font, SPHERE_X(i), viewportHeight / 2, radius, numStr[i], baseY);
+        draw_num_sphere(display, pixmap, gc, font, SPHERE_X(i), viewportHeight / 2, radius, numStr[i], baseY);
     }
 
     time_t frameDuration = 1000000 / 60;
     time_t last_time = get_time_usec();
-    int frames_per_animation_vertical = 10;
-    int frames_per_animation_horizontal = 20;
-    struct animation_state anim = { .frame = 1, .frames = 0, .state = DOWN_2, .sphereIdx1 = -1, .sphereIdx2 = -1 };
+    int speed = 20;
+    int vertical_anim_duration = 10 * speed;
+    int horizontal_anim_duration = 20 * speed;
+    struct animation_state anim = { .progress = 1, .end = 0, .state = DOWN_2, .sphereIdx1 = -1, .sphereIdx2 = -1 };
     bool animation_running = true;
     int focusX = SPHERE_X(0);
     int comparisions = 0;
@@ -353,9 +361,14 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
     for(;;) {
         time_t time_since_anim = get_time_usec() - last_time;
         if(animation_running && (time_since_anim >= frameDuration)) {
-            if(anim.frame == anim.frames + 1) {
+            if(anim.progress >= anim.end + 1) {
                 // animation is done, go to next phase or get next swap request
-
+                if(anim.sphereIdx1 != -1) {
+                    erase_num_sphere(display, pixmap, erase_gc, anim.x, anim.y, radius, baseY);
+                    draw_num_sphere(display, pixmap, gc, font, anim.targetX, anim.targetY, radius, get_anim_str(&anim, numStr), baseY);
+                    anim.x = anim.targetX;
+                    anim.y = anim.targetY;
+                }
                 if(anim.state == DOWN_2) {
                     if(anim.sphereIdx1 != -1) {
                         swaps++;
@@ -378,7 +391,6 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
                     anim = (struct animation_state){.sphereIdx1 = nextSphere1, .sphereIdx2 = nextSphere2, .state = INIT};
                 }
 
-                // set startX, startY, targetX, targetY, frames for next phase of animation
                 switch(anim.state) {
                     case INIT:
                         // move sphere 1 down
@@ -386,14 +398,14 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
                         anim.y = anim.startY = viewportHeight / 2;
                         anim.targetX = anim.x;
                         anim.targetY = anim.y + radius * 2 + 10;
-                        anim.frames = frames_per_animation_vertical;
+                        anim.end = vertical_anim_duration;
                         anim.state = DOWN_1;
                         break;
                     case DOWN_1:
                         // move sphere 1 right
                         anim.startY = anim.y;
                         anim.targetX = SPHERE_X(anim.sphereIdx2);
-                        anim.frames = frames_per_animation_horizontal;
+                        anim.end = horizontal_anim_duration;
                         anim.state = RIGHT_1;
                         break;
                     case RIGHT_1:
@@ -401,14 +413,14 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
                         anim.startX = anim.x;
                         anim.y = anim.startY = viewportHeight / 2;
                         anim.targetY = anim.y - radius * 2 - 10;
-                        anim.frames = frames_per_animation_vertical;
+                        anim.end = vertical_anim_duration;
                         anim.state = UP_2;
                         break;
                     case UP_2:
                         // move sphere 1 up
                         anim.y = anim.startY = viewportHeight / 2 + radius * 2 + 10;
                         anim.targetY = viewportHeight / 2;
-                        anim.frames = frames_per_animation_vertical;
+                        anim.end = vertical_anim_duration;
                         anim.state = UP_1;
                         break;
                     case UP_1:
@@ -417,7 +429,7 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
                         anim.startY = anim.y = viewportHeight / 2 - radius * 2 - 10;
                         anim.targetX = SPHERE_X(anim.sphereIdx1);
                         anim.targetY = anim.y;
-                        anim.frames = frames_per_animation_horizontal;
+                        anim.end = horizontal_anim_duration;
                         anim.state = LEFT_2;
                         break;
                     case LEFT_2:
@@ -425,29 +437,30 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
                         anim.startX = anim.x;
                         anim.startY = anim.y;
                         anim.targetY = viewportHeight / 2;
-                        anim.frames = frames_per_animation_vertical;
+                        anim.end = vertical_anim_duration;
                         anim.state = DOWN_2;
                         break;
                     case DOWN_2:
                         assert(0 && "should not happen");
                 }
-                anim.frame = 0;
+                anim.progress = 0;
             }
 
             erase_num_sphere(display, pixmap, erase_gc, anim.x, anim.y, radius, baseY);
             update_anim_position(&anim);
             focusX = (int)((double)focusX + ((double)anim.x - focusX) / 10);
-            const bool is_sphere_1[] = {[DOWN_1] = true, [RIGHT_1] = true, [UP_2] = false, [UP_1] = true, [LEFT_2] = false, [DOWN_2] = false};
-            const char *str = numStr[is_sphere_1[anim.state] ? anim.sphereIdx1 : anim.sphereIdx2];
-            draw_num_sphere(display, pixmap, gc, *font, anim.x, anim.y, radius, str, baseY);
-            anim.frame++;
+            draw_num_sphere(display, pixmap, gc, font, anim.x, anim.y, radius, get_anim_str(&anim, numStr), baseY);
+            anim.progress += speed;
 
             last_time = get_time_usec();
             fake_expose(display, window);
         }
 
         if(animation_running && (XPending(display) == 0)) {
-            usleep(frameDuration - time_since_anim);
+            time_t diff = frameDuration - time_since_anim;
+            if(diff > 0) {
+                usleep(diff);
+            }
             continue;
         }
 
@@ -456,11 +469,22 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
         if(e.type == ClientMessage && (Atom)e.xclient.data.l[0] == WM_DELETE_WINDOW) {
             break;
         }
+        if(e.type == KeyPress) {
+            KeySym keysym = XLookupKeysym(&e.xkey, 0);
+            if(keysym == XK_plus || keysym == XK_KP_Add) {
+                speed++;
+            } else if((keysym == XK_minus || keysym == XK_KP_Subtract) && speed > 0) {
+                speed--;
+            } else {
+                continue;
+            }
+            fake_expose(display, window);
+        }
         if(e.type == Expose) {
             XClearWindow(display, window);
             XCopyArea(display, pixmap, window, gc, focusX - windowWidth / 2, baseY, windowWidth, viewportHeight, 0, 0);
             char statusBuf[256];
-            snprintf(statusBuf, sizeof(statusBuf), "%s: %d comparisons, %d swaps", algo_names[algoSelection], comparisions, swaps);
+            snprintf(statusBuf, sizeof(statusBuf), "%s: %d comparisons, %d swaps. Speed: %d (change by pressing +/-)", algo_names[algoSelection], comparisions, swaps, speed);
             XDrawString(display, window, gc, 10, viewportHeight + font->ascent + font->descent + 5, statusBuf, strlen(statusBuf));
             XFlush(display);
         }
