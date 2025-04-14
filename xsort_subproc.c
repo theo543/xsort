@@ -14,34 +14,107 @@
 #include "utils.h"
 #include "xsort_subproc.h"
 
-const int64_t COMPARE = 0, SWAP = 1, FINISH = 2;
+static const int64_t COMPARE_SMALLER = 0, SWAP = 1, FINISH = 2;
 
-static void swap(int fd, int i, int j) {
-    write_int(fd, SWAP);
-    write_int(fd, i);
-    write_int(fd, j);
+static void swap(int write_fd, int i, int j) {
+    if(i == j) {
+        return;
+    }
+    write_int(write_fd, SWAP);
+    write_int(write_fd, i);
+    write_int(write_fd, j);
 }
 
-static int compare(int read_fd, int write_fd, int i, int j) {
-    write_int(write_fd, COMPARE);
+static int smaller(int read_fd, int write_fd, int i, int j) {
+    write_int(write_fd, COMPARE_SMALLER);
     write_int(write_fd, i);
     write_int(write_fd, j);
     return read_int(read_fd);
 }
 
-static void bubble_sort(int read_fd, int write_fd, int len) {
+static void bubble_sort(int r, int w, int len) {
     bool swapped = true;
     while(swapped) {
         swapped = false;
         for(int x = 0;x < len - 1;x++) {
-            if(compare(read_fd, write_fd, x + 1, x)) {
-                swap(write_fd, x, x + 1);
+            if(smaller(r, w, x + 1, x)) {
+                swap(w, x, x + 1);
                 swapped = true;
             }
         }
     };
-    write_int(write_fd, FINISH);
 }
+
+static void insert_sort(int r, int w, int len) {
+    for(int x = 1;x < len;x++) {
+        for(int y = x;y > 0;y--) {
+            if(smaller(r, w, y, y - 1)) {
+                swap(w, y, y - 1);
+            }
+        }
+    }
+}
+
+static void selection_sort(int r, int w, int len) {
+    for(int x = 0;x < len - 1;x++) {
+        int min = x;
+        for(int y = x + 1;y < len;y++) {
+            if(smaller(r, w, y, min)) {
+                min = y;
+            }
+        }
+        if(min != x) {
+            swap(w, x, min);
+        }
+    }
+}
+
+static void quick_sort_rec(int r, int w, int start, int end) {
+    if(start >= end) {
+        return;
+    }
+    if(start + 1 == end) {
+        if(smaller(r, w, end, start)) {
+            swap(w, end, start);
+        }
+        return;
+    }
+    swap(w, start, start + (end - start) / 2);
+    int i = start + 1;
+    int j = end;
+    while(i <= j) {
+        if(smaller(r, w, i, start)) {
+            i++;
+        } else if(!smaller(r, w, j, start)) {
+            j--;
+        } else {
+            swap(w, i, j);
+            i++;
+            j--;
+        }
+    }
+    swap(w, start, j);
+    quick_sort_rec(r, w, start, j - 1);
+    quick_sort_rec(r, w, j + 1, end);
+}
+
+static void quick_sort(int r, int w, int len) {
+    quick_sort_rec(r, w, 0, len - 1);
+}
+
+typedef void (*sort_algo)(int, int, int);
+static const sort_algo sort_algos[ALGO_LEN] = {
+    bubble_sort,
+    insert_sort,
+    selection_sort,
+    quick_sort,
+};
+const char * const algo_names[ALGO_LEN] = {
+    "Bubble Sort",
+    "Insertion Sort",
+    "Selection Sort",
+    "Quick Sort",
+};
 
 static bool get_swap_request(int read_fd, int write_fd, int64_t *buf, int len, int *i, int *j) {
     while(1) {
@@ -54,7 +127,7 @@ static bool get_swap_request(int read_fd, int write_fd, int64_t *buf, int len, i
             *j = read_int(read_fd);
             return true;
         }
-        assert(request == COMPARE);
+        assert(request == COMPARE_SMALLER);
         int a = read_int(read_fd);
         int b = read_int(read_fd);
         assert(a >= 0 && a < len);
@@ -103,8 +176,10 @@ static void update_anim_position(struct animation_state *anim) {
     anim->y = (int)y;
 }
 
-static void launch_sorting_algorithm(int actionIdx, int bufLen, int *read_fd, int *write_fd) {
-    (void)actionIdx; // TODO: actionIdx specifies sorting algorithm
+static void launch_sorting_algorithm(int algoSelection, int bufLen, int *read_fd, int *write_fd) {
+    assert(algoSelection >= 0 && algoSelection < ALGO_LEN);
+    sort_algo sort = sort_algos[algoSelection];
+
     int parent_to_child[2];
     int child_to_parent[2];
     pipe_(parent_to_child);
@@ -123,15 +198,26 @@ static void launch_sorting_algorithm(int actionIdx, int bufLen, int *read_fd, in
     }
     close_(parent_to_child[1]);
     close_(child_to_parent[0]);
-    bubble_sort(parent_to_child[0], child_to_parent[1], bufLen);
+    sort(parent_to_child[0], child_to_parent[1], bufLen);
+    write_int(child_to_parent[1], FINISH);
     close_(parent_to_child[0]);
     close_(child_to_parent[1]);
     exit(0);
 }
 
-void run_sort(int64_t *buf, int bufLen, int actionIdx) {
+void verify_sort(int64_t *buf, int bufLen, const char *algoName) {
+    for(int i = 1; i < bufLen; i++) {
+        if(buf[i - 1] > buf[i]) {
+            fprintf(stderr, "%s: sort bug!\n", algoName);
+            return;
+        }
+    }
+    fprintf(stderr, "%s: sort completed successfully\n", algoName);
+}
+
+void run_sort(int64_t *buf, int bufLen, int algoSelection) {
     int algorithm_read_fd, algorithm_write_fd;
-    launch_sorting_algorithm(actionIdx, bufLen, &algorithm_read_fd, &algorithm_write_fd);
+    launch_sorting_algorithm(algoSelection, bufLen, &algorithm_read_fd, &algorithm_write_fd);
 
     char **numStr = reallocarray(NULL, bufLen, sizeof(char*));
     char *strBuf = reallocarray(NULL, bufLen, 22);
@@ -175,7 +261,7 @@ void run_sort(int64_t *buf, int bufLen, int actionIdx) {
     int radius = maxWidth / 2 + 5;
 
     int windowHeight = (radius * 2 + 10) * 3;
-    const int minWidth = 400;
+    const int minWidth = 1600;
     int windowWidth = (10 * (radius * 2 + 10) + 10);
     if(windowWidth < minWidth) {
         windowWidth = minWidth;
@@ -183,7 +269,7 @@ void run_sort(int64_t *buf, int bufLen, int actionIdx) {
 
     Window window = XCreateSimpleWindow(display, DefaultRootWindow(display), 0, 0, windowWidth, windowHeight, 0, blackColor, whiteColor);
     char titleBuf[128];
-    snprintf(titleBuf, sizeof(titleBuf), "XSort: sorting %d numbers", bufLen);
+    snprintf(titleBuf, sizeof(titleBuf), "XSort - sorting %d numbers with %s", bufLen, algo_names[algoSelection]);
     XStoreName(display, window, titleBuf);
     XSelectInput(display, window, StructureNotifyMask);
     GC gc = XCreateGC(display, window, 0, NULL);
@@ -236,6 +322,7 @@ void run_sort(int64_t *buf, int bufLen, int actionIdx) {
                         animation_running = false;
                         close_(algorithm_read_fd);
                         close_(algorithm_write_fd);
+                        verify_sort(buf, bufLen, algo_names[algoSelection]);
                         continue;
                     }
                     anim = (struct animation_state){.sphereIdx1 = nextSphere1, .sphereIdx2 = nextSphere2, .state = INIT};

@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <limits.h>
 #include <inttypes.h>
+#include <stdbool.h>
 
 #include <unistd.h>
 #include <fcntl.h>
@@ -26,6 +27,18 @@ static void drawButton(const char *text, int x, int y, Display *display, Window 
     XDrawRectangle(display, window, borderGC, x, y, *width, *height);
     XFillRectangle(display, window, fillGC, x + 1, y + 1, *width - 2, *height - 2);
     XDrawString(display, window, textGC, x + 5, y + *height / 2 + 5, text, strlen(text));
+}
+
+static void drawRadioButton(const char *text, int x, int y, Display *display, Window window, GC borderGC, GC whiteGC, GC textGC, XFontStruct *font, int *width, int *height, bool selected) {
+    const int circleRadius = font->ascent + font->descent;
+    *width = XTextWidth(font, text, strlen(text)) + circleRadius + 10;
+    *height = circleRadius;
+    XDrawArc(display, window, borderGC, x, y, circleRadius, circleRadius, 0, 360 * 64);
+    XFillArc(display, window, whiteGC, x + 1, y + 1, circleRadius - 2, circleRadius - 2, 0, 360 * 64);
+    XDrawString(display, window, textGC, x + circleRadius + 5, y + circleRadius / 2 + 5, text, strlen(text));
+    if(selected) {
+        XFillArc(display, window, borderGC, x + 3, y + 3, circleRadius - 6, circleRadius - 6, 0, 360 * 64);
+    }
 }
 
 struct Button {
@@ -149,7 +162,7 @@ static int64_t *loadBuffer(int *bufLen) {
     return NULL;
 }
 
-int launch_fork_server(void) {
+static int launch_fork_server(void) {
     int fork_server_fd[2];
     pipe_(fork_server_fd);
     pid_t fork_server_pid = fork();
@@ -164,11 +177,12 @@ int launch_fork_server(void) {
     close_(fork_server_fd[1]);
     char *buf = NULL;
     while(1) {
-        int bufLen = read_int(fork_server_fd[0]);
-        if(bufLen == -1) {
+        int algoSelection = read_int(fork_server_fd[0]);
+        if(algoSelection == -1) {
             close_(fork_server_fd[0]);
             exit(0);
         }
+        int bufLen = read_int(fork_server_fd[0]);
         buf = reallocarray(buf, bufLen, sizeof(int64_t));
         if(!buf) {
             perror("reallocarray");
@@ -182,7 +196,7 @@ int launch_fork_server(void) {
         }
         if(sort_pid == 0) {
             close_(fork_server_fd[0]);
-            run_sort((int64_t*)buf, bufLen, 0);
+            run_sort((int64_t*)buf, bufLen, algoSelection);
             free(buf);
             exit(0);
         }
@@ -194,7 +208,7 @@ int main(void) {
     int fork_server_fd = launch_fork_server();
 
     struct Button buttons[] = {
-        (struct Button){.type = LOAD},
+        (struct Button){.type = LOAD, .x = 10},
         (struct Button){.type = SAVE},
         (struct Button){.type = LAUNCH},
         (struct Button){.type = UP},
@@ -204,6 +218,7 @@ int main(void) {
         (struct Button){.type = RANDOM}
     };
     const int buttonsLen = sizeof(buttons) / sizeof(buttons[0]);
+    struct Button selectAlgoButtons[ALGO_LEN];
 
     Display *display = XOpenDisplay(NULL);
     int blackColor = BlackPixel(display, DefaultScreen(display));
@@ -277,6 +292,7 @@ int main(void) {
     buf[0] = 0;
     int bufLen = 1;
     int bufSelection = 0;
+    int algoSelection = 0;
 
     for(;;) {
         XEvent e;
@@ -319,6 +335,7 @@ int main(void) {
             if(numStart > 0) {
                 XDrawString(display, window, textGC, 10, y, dots, strlen(dots));
             }
+            selectAlgoButtons[0].y = y + (font->ascent + font->descent) / 2;
             y += font->ascent + font->descent + 5;
             int arrowX;
             int arrowY;
@@ -342,6 +359,16 @@ int main(void) {
             XDrawLine(display, window, lineGC, arrowX, arrowY, arrowX + 10, arrowY);
             XDrawLine(display, window, lineGC, arrowX, arrowY, arrowX + 5, arrowY - 5);
             XDrawLine(display, window, lineGC, arrowX, arrowY, arrowX + 5, arrowY + 5);
+            const char *bigNr = "99999999999999999999999";
+            int maxPossibleNumWidth = XTextWidth(font, bigNr, strlen(bigNr));
+            selectAlgoButtons[0].x = buttons[0].x + maxPossibleNumWidth + 20;
+            for(int i = 0; i < ALGO_LEN; i++) {
+                drawRadioButton(algo_names[i], selectAlgoButtons[i].x, selectAlgoButtons[i].y, display, window, borderGC, textAreaGC, textGC, font, &selectAlgoButtons[i].width, &selectAlgoButtons[i].height, i == algoSelection);
+                if(i != ALGO_LEN - 1) {
+                    selectAlgoButtons[i + 1].x = selectAlgoButtons[i].x;
+                    selectAlgoButtons[i + 1].y = selectAlgoButtons[i].y + selectAlgoButtons[i].height + 10;
+                }
+            }
         }
         if(e.type == KeyPress) {
             KeySym keysym = XLookupKeysym(&e.xkey, 0);
@@ -389,6 +416,17 @@ int main(void) {
                 }
             }
             if(pressedButton == -1) {
+                int pressedAlgo = -1;
+                for(int i = 0;i < ALGO_LEN; i++) {
+                    if(x >= selectAlgoButtons[i].x && x <= selectAlgoButtons[i].x + selectAlgoButtons[i].width && y >= selectAlgoButtons[i].y && y <= selectAlgoButtons[i].y + selectAlgoButtons[i].height) {
+                        pressedAlgo = i;
+                        break;
+                    }
+                }
+                if(pressedAlgo != -1) {
+                    algoSelection = pressedAlgo;
+                    fake_expose(display, window);
+                }
                 continue;
             }
             switch(buttons[pressedButton].type) {
@@ -409,6 +447,7 @@ int main(void) {
                         fprintf(stderr, "Buffer is empty\n");
                         break;
                     }
+                    write_int(fork_server_fd, algoSelection);
                     write_int(fork_server_fd, bufLen);
                     write_(fork_server_fd, (char*)buf, bufLen * sizeof(int64_t));
                     break;
