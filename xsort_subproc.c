@@ -29,7 +29,12 @@ static int smaller(int read_fd, int write_fd, int i, int j) {
     write_int(write_fd, COMPARE_SMALLER);
     write_int(write_fd, i);
     write_int(write_fd, j);
-    return read_int(read_fd);
+    int result = read_int(read_fd);
+    if(result == -1) {
+        // window closed before sort finished, exit early
+        exit(0);
+    }
+    return result;
 }
 
 static void bubble_sort(int r, int w, int len) {
@@ -420,4 +425,9 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
     XCloseDisplay(display);
     free(numStr);
     free(strBuf);
+    if(animation_running) {
+        // write a -1 to subprocess to prevent EOF error, if window was closed before sort finished
+        // a SIGPIPE may happen if subprocess has finished already, but this process was going to exit right after anyway
+        write_int(algorithm_write_fd, -1);
+    }
 }
