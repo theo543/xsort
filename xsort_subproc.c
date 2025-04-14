@@ -107,18 +107,57 @@ static void quick_sort(int r, int w, int len) {
     quick_sort_rec(r, w, 0, len - 1);
 }
 
+static void heap_sift_down(int r, int w, int len, int i) {
+    // sift-down operation restores max-heap property when the root may be smaller than its children
+    while(1) {
+        int child1 = i * 2 + 1;
+        int child2 = i * 2 + 2;
+        int largest = i;
+        if(child1 < len && smaller(r, w, largest, child1)) {
+            largest = child1;
+        }
+        if(child2 < len && smaller(r, w, largest, child2)) {
+            largest = child2;
+        }
+        if(largest == i) {
+            break;
+        }
+        swap(w, i, largest);
+        i = largest;
+    }
+}
+
+static void heapify(int r, int w, int len) {
+    // build max-heap from the bottom up
+    // last non-leaf node is at (len - 2) / 2
+    for(int i = (len - 2) / 2; i >= 0; i--) {
+        heap_sift_down(r, w, len, i);
+    }
+}
+
+static void heap_sort(int r, int w, int len) {
+    heapify(r, w, len);
+    for(int i = len - 1; i > 0; i--) {
+        // extract largest element, move to end of array, reduce heap size by 1, restore max-heap property
+        swap(w, 0, i);
+        heap_sift_down(r, w, i, 0);
+    }
+}
+
 typedef void (*sort_algo)(int, int, int);
 static const sort_algo sort_algos[ALGO_LEN] = {
     bubble_sort,
     insert_sort,
     selection_sort,
     quick_sort,
+    heap_sort,
 };
 const char * const algo_names[ALGO_LEN] = {
     "Bubble Sort",
     "Insertion Sort",
     "Selection Sort",
     "Quick Sort",
+    "Heap Sort",
 };
 
 static bool get_swap_request(int read_fd, int write_fd, int64_t *buf, int len, int *i, int *j, int *comparisions) {
@@ -211,7 +250,7 @@ static void launch_sorting_algorithm(int algoSelection, int bufLen, int *read_fd
     exit(0);
 }
 
-void verify_sort(int64_t *buf, int bufLen, const char *algoName) {
+static void verify_sort(int64_t *buf, int bufLen, const char *algoName) {
     for(int i = 1; i < bufLen; i++) {
         if(buf[i - 1] > buf[i]) {
             fprintf(stderr, "%s: sort bug!\n", algoName);
