@@ -333,12 +333,13 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
     XSetForeground(display, erase_gc, whiteColor);
     Atom WM_DELETE_WINDOW = XInternAtom(display, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(display, window, &WM_DELETE_WINDOW, 1);
-    XSelectInput(display, window, ExposureMask | KeyPressMask);
+    XSelectInput(display, window, ExposureMask | KeyPressMask | StructureNotifyMask);
     XMapWindow(display, window);
 
     int fullWidth = (radius * 2 + 10) * bufLen + 10;
     Pixmap pixmap = XCreatePixmap(display, window, fullWidth, viewportHeight * 4, DefaultDepth(display, DefaultScreen(display)));
     int baseY = viewportHeight * 2;
+    int viewportY = 0;
     XFillRectangle(display, pixmap, erase_gc, 0, 0, fullWidth, viewportHeight * 4);
 
 #define SPHERE_X(i) ((radius * 2 + 10) * (i) + radius + 5)
@@ -469,6 +470,22 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
         if(e.type == ClientMessage && (Atom)e.xclient.data.l[0] == WM_DELETE_WINDOW) {
             break;
         }
+        if(e.type == ConfigureNotify) {
+            windowWidth = e.xconfigure.width;
+            windowHeight = e.xconfigure.height;
+            viewportY = (windowHeight - viewportHeight - statusPaneHeight) / 2;
+        }
+        int widthDiff = fullWidth - windowWidth;
+        if(widthDiff < 0) {
+            widthDiff = 0;
+        }
+        int minFocusX = fullWidth / 2 - widthDiff / 2;
+        int maxFocusX = fullWidth / 2 + widthDiff / 2;
+        if(focusX < minFocusX) {
+            focusX = minFocusX;
+        } else if(focusX > maxFocusX) {
+            focusX = maxFocusX;
+        }
         if(e.type == KeyPress) {
             KeySym keysym = XLookupKeysym(&e.xkey, 0);
             if(keysym == XK_plus || keysym == XK_KP_Add) {
@@ -482,10 +499,14 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
         }
         if(e.type == Expose) {
             XClearWindow(display, window);
-            XCopyArea(display, pixmap, window, gc, focusX - windowWidth / 2, baseY, windowWidth, viewportHeight, 0, 0);
+            XCopyArea(display, pixmap, window, gc, focusX - windowWidth / 2, baseY, windowWidth, viewportHeight, 0, viewportY);
             char statusBuf[256];
             snprintf(statusBuf, sizeof(statusBuf), "%s: %d comparisons, %d swaps. Speed: %d (change by pressing +/-)", algo_names[algoSelection], comparisions, swaps, speed);
-            XDrawString(display, window, gc, 10, viewportHeight + font->ascent + font->descent + 5, statusBuf, strlen(statusBuf));
+            int statusX = (windowWidth - XTextWidth(font, statusBuf, strlen(statusBuf))) / 2;
+            if(statusX < 0) {
+                statusX = 0;
+            }
+            XDrawString(display, window, gc, statusX, viewportY + viewportHeight + font->ascent + font->descent + 5, statusBuf, strlen(statusBuf));
             XFlush(display);
         }
     }
