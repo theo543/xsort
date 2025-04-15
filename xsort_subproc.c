@@ -490,6 +490,9 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
         }
         if(e.type == KeyPress) {
             KeySym keysym = XLookupKeysym(&e.xkey, 0);
+            if(keysym == XK_Escape) {
+                break;
+            }
             if(keysym == XK_plus || keysym == XK_KP_Add) {
                 speed++;
                 changed = true;
