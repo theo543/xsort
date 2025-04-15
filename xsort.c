@@ -226,6 +226,10 @@ int main(void) {
     struct Button selectAlgoButtons[ALGO_LEN];
 
     Display *display = XOpenDisplay(NULL);
+    if(!display) {
+        fprintf(stderr, "Failed to open display\n");
+        return 1;
+    }
     int blackColor = BlackPixel(display, DefaultScreen(display));
     int whiteColor = WhitePixel(display, DefaultScreen(display));
     XVisualInfo vInfo;
@@ -234,6 +238,10 @@ int main(void) {
         return 1;
     }
     Colormap colormap = XCreateColormap(display, DefaultRootWindow(display), vInfo.visual, AllocNone);
+    if(!colormap) {
+        fprintf(stderr, "Failed to create colormap\n");
+        return 1;
+    }
     int grayColor;
     int lightGrayColor;
     int blueColor;
@@ -268,16 +276,20 @@ int main(void) {
     XMapWindow(display, window);
 
     GC lineGC = XCreateGC(display, window, 0, NULL);
-    XSetForeground(display, lineGC, blackColor);
     GC borderGC = XCreateGC(display, window, 0, NULL);
-    XSetForeground(display, borderGC, blackColor);
     GC fillGC = XCreateGC(display, window, 0, NULL);
-    XSetForeground(display, fillGC, grayColor);
     GC textGC = XCreateGC(display, window, 0, NULL);
-    XSetForeground(display, textGC, blackColor);
     GC textAreaGC = XCreateGC(display, window, 0, NULL);
-    XSetForeground(display, textAreaGC, whiteColor);
     GC selectedTextGC = XCreateGC(display, window, 0, NULL);
+    if(!lineGC || !borderGC || !fillGC || !textGC || !textAreaGC || !selectedTextGC) {
+        fprintf(stderr, "Failed to create graphics context\n");
+        return 1;
+    }
+    XSetForeground(display, lineGC, blackColor);
+    XSetForeground(display, borderGC, blackColor);
+    XSetForeground(display, fillGC, grayColor);
+    XSetForeground(display, textGC, blackColor);
+    XSetForeground(display, textAreaGC, whiteColor);
     XSetForeground(display, selectedTextGC, blueColor);
     XSetFont(display, lineGC, font->fid);
     XSetFont(display, borderGC, font->fid);

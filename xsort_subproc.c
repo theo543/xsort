@@ -293,6 +293,10 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
     }
 
     Display *display = XOpenDisplay(NULL);
+    if(!display) {
+        fprintf(stderr, "Failed to open display\n");
+        exit(1);
+    }
     int blackColor = BlackPixel(display, DefaultScreen(display));
     int whiteColor = WhitePixel(display, DefaultScreen(display));
 
@@ -323,9 +327,13 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
     XStoreName(display, window, titleBuf);
     XSelectInput(display, window, StructureNotifyMask);
     GC gc = XCreateGC(display, window, 0, NULL);
+    GC erase_gc = XCreateGC(display, window, 0, NULL);
+    if(!gc || !erase_gc) {
+        fprintf(stderr, "Failed to create graphics context\n");
+        exit(1);
+    }
     XSetForeground(display, gc, blackColor);
     XSetFont(display, gc, font->fid);
-    GC erase_gc = XCreateGC(display, window, 0, NULL);
     XSetForeground(display, erase_gc, whiteColor);
     Atom WM_DELETE_WINDOW = XInternAtom(display, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(display, window, &WM_DELETE_WINDOW, 1);
@@ -334,6 +342,10 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
 
     int fullWidth = (radius * 2 + 10) * bufLen + 10;
     Pixmap pixmap = XCreatePixmap(display, window, fullWidth, viewportHeight * 4, DefaultDepth(display, DefaultScreen(display)));
+    if(!pixmap) {
+        fprintf(stderr, "Failed to create pixmap\n");
+        exit(1);
+    }
     int baseY = viewportHeight * 2;
     int viewportY = 0;
     XFillRectangle(display, pixmap, erase_gc, 0, 0, fullWidth, viewportHeight * 4);
