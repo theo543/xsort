@@ -66,7 +66,7 @@ static void insertAt(int64_t **buf, int *bufLen, int bufSelection, int64_t input
     }
     *buf = reallocarray(*buf, *bufLen + 1, sizeof(int64_t));
     if(!*buf) {
-        perror("realloc");
+        perror("reallocarray");
         exit(1);
     }
     for(int i = *bufLen; i > bufSelection; i--) {
@@ -86,7 +86,7 @@ static void deleteAt(int64_t **buf, int *bufLen, int bufSelection) {
     (*bufLen)--;
     *buf = reallocarray(*buf, *bufLen == 0 ? 1 : *bufLen, sizeof(int64_t));
     if(!*buf) {
-        perror("realloc");
+        perror("reallocarray");
         exit(1);
     }
 }
