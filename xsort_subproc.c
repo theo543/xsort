@@ -466,7 +466,8 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
             changed = true;
         }
 
-        if(animation_running && XPending(display) == 0 && !changed) {
+        bool pending = XPending(display) > 0;
+        if(animation_running && !pending && !changed) {
             time_t diff = frameDuration - time_since_anim;
             if(diff > 0) {
                 usleep(diff);
@@ -475,7 +476,13 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
         }
 
         XEvent e;
-        XNextEvent(display, &e);
+        // while the animation is running, never block on XNextEvent
+        if(pending || !animation_running) {
+            XNextEvent(display, &e);
+        } else {
+            assert(changed);
+            e.type = Expose;
+        }
         if(e.type == ClientMessage && (Atom)e.xclient.data.l[0] == WM_DELETE_WINDOW) {
             break;
         }
