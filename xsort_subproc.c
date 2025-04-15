@@ -360,6 +360,7 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
     int swaps = 0;
 
     for(;;) {
+        bool changed = false;
         time_t time_since_anim = get_time_usec() - last_time;
         if(animation_running && (time_since_anim >= frameDuration)) {
             if(anim.progress >= anim.end + 1) {
@@ -454,10 +455,10 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
             anim.progress += speed;
 
             last_time = get_time_usec();
-            fake_expose(display, window);
+            changed = true;
         }
 
-        if(animation_running && (XPending(display) == 0)) {
+        if(animation_running && XPending(display) == 0 && !changed) {
             time_t diff = frameDuration - time_since_anim;
             if(diff > 0) {
                 usleep(diff);
@@ -474,6 +475,7 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
             windowWidth = e.xconfigure.width;
             windowHeight = e.xconfigure.height;
             viewportY = (windowHeight - viewportHeight - statusPaneHeight) / 2;
+            changed = true;
         }
         int widthDiff = fullWidth - windowWidth;
         if(widthDiff < 0) {
@@ -490,14 +492,13 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
             KeySym keysym = XLookupKeysym(&e.xkey, 0);
             if(keysym == XK_plus || keysym == XK_KP_Add) {
                 speed++;
+                changed = true;
             } else if((keysym == XK_minus || keysym == XK_KP_Subtract) && speed > 0) {
                 speed--;
-            } else {
-                continue;
+                changed = true;
             }
-            fake_expose(display, window);
         }
-        if(e.type == Expose) {
+        if(changed || e.type == Expose) {
             XClearWindow(display, window);
             XCopyArea(display, pixmap, window, gc, focusX - windowWidth / 2, baseY, windowWidth, viewportHeight, 0, viewportY);
             char statusBuf[256];

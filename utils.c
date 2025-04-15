@@ -5,7 +5,6 @@
 #include <string.h>
 
 #include <unistd.h>
-#include <X11/Xlib.h>
 
 #include "utils.h"
 
@@ -67,17 +66,4 @@ int read_int(int fd) {
     read_(fd, buf, sizeof(int));
     memcpy(&data, buf, sizeof(int));
     return data;
-}
-
-void fake_expose(Display* dpy, Window win) {
-    XEvent e;
-    e.type = Expose;
-    e.xexpose.window = win;
-    e.xexpose.x = 0;
-    e.xexpose.y = 0;
-    e.xexpose.width = 0;
-    e.xexpose.height = 0;
-    e.xexpose.count = 0;
-    XSendEvent(dpy, win, False, ExposureMask, &e);
-    XFlush(dpy);
 }

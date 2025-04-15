@@ -1,10 +1,6 @@
-#include <X11/Xlib.h>
-
 void pipe_(int *pipefds);
 void close_(int fd);
 void write_(int fd, char *buf, int bytes);
 void read_(int fd, char *buf, int bytes);
 void write_int(int fd, int data);
 int read_int(int fd);
-
-void fake_expose(Display* dpy, Window win);

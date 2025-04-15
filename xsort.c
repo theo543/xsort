@@ -42,7 +42,7 @@ static void drawRadioButton(const char *text, int x, int y, Display *display, Wi
 }
 
 struct Button {
-    enum { LOAD, SAVE, LAUNCH, UP, DOWN, INSERT, DELETE, RANDOM } type;
+    enum ButtonType { LOAD, SAVE, LAUNCH, UP, DOWN, INSERT, DELETE, RANDOM, ALGO_SELECT } type;
     int x, y;
     int width, height;
 };
@@ -203,6 +203,10 @@ static int launch_fork_server(void) {
     }
 }
 
+static bool in_bounds(int x, int y, struct Button *btn) {
+    return x >= btn->x && x <= (btn->x + btn->width) && y >= btn->y && y <= (btn->y + btn->height);
+}
+
 int main(void) {
     signal(SIGCHLD, SIG_IGN);
     int fork_server_fd = launch_fork_server();
@@ -295,12 +299,128 @@ int main(void) {
     int algoSelection = 0;
 
     for(;;) {
+        bool changed = false;
         XEvent e;
         XNextEvent(display, &e);
         if(e.type == ClientMessage && (Atom)e.xclient.data.l[0] == WM_DELETE_WINDOW) {
             break;
         }
-        if(e.type == Expose) {
+        if(e.type == KeyPress) {
+            KeySym keysym = XLookupKeysym(&e.xkey, 0);
+            if(keysym == XK_Escape) {
+                break;
+            }
+            if(keysym == XK_BackSpace) {
+                inputNr /= 10;
+                changed = true;
+            } else if(keysym == XK_minus || keysym == XK_KP_Subtract) {
+                if(inputNr == INT64_MIN) {
+                    inputNr = INT64_MAX;
+                } else {
+                    inputNr = -inputNr;
+                }
+                changed = true;
+            } else {
+                char key[2] = "0";
+                XLookupString(&e.xkey, key, sizeof(key), NULL, NULL);
+                if(isdigit(key[0])) {
+                    if(inputNr >= 0 && inputNr < INT64_MAX / 10) {
+                        inputNr = inputNr * 10 + (key[0] - '0');
+                    } else if(inputNr < 0 && inputNr > INT64_MIN / 10) {
+                        inputNr = inputNr * 10 - (key[0] - '0');
+                    } else if(inputNr > 0) {
+                        inputNr = INT64_MAX;
+                    } else {
+                        inputNr = INT64_MIN;
+                    }
+                    changed = true;
+                }
+            }
+        }
+        if(e.type == ButtonPress) {
+            if(e.xbutton.button != Button1) {
+                continue;
+            }
+            bool found = false;
+            enum ButtonType type;
+            int x = e.xbutton.x;
+            int y = e.xbutton.y;
+            for(int i = 0;i < buttonsLen; i++) {
+                if(in_bounds(x, y, &buttons[i])) {
+                    type = buttons[i].type;
+                    found = true;
+                    break;
+                }
+            }
+            for(int i = 0;i < ALGO_LEN; i++) {
+                if(in_bounds(x, y, &selectAlgoButtons[i])) {
+                    type = ALGO_SELECT;
+                    algoSelection = i;
+                    found = true;
+                    break;
+                }
+            }
+            if(!found) {
+                continue;
+            }
+            changed = true;
+            switch(type) {
+                case ALGO_SELECT:
+                    // nothing to do, algoSelection was updated in the loop
+                    break;
+                case LOAD:
+                    fprintf(stderr, "Loading from %s\n", buf_file_name);
+                    free(buf);
+                    buf = loadBuffer(&bufLen);
+                    if(bufSelection > bufLen) {
+                        bufSelection = bufLen;
+                    }
+                    break;
+                case SAVE:
+                    fprintf(stderr, "Saving to %s\n", buf_file_name);
+                    saveBuffer(buf, bufLen);
+                    break;
+                case LAUNCH:
+                    if(bufLen == 0) {
+                        fprintf(stderr, "Buffer is empty\n");
+                        break;
+                    }
+                    write_int(fork_server_fd, algoSelection);
+                    write_int(fork_server_fd, bufLen);
+                    write_(fork_server_fd, (char*)buf, bufLen * sizeof(int64_t));
+                    break;
+                case UP:
+                    bufSelection = bufSelection == 0 ? 0 : bufSelection - 1;
+                    break;
+                case DOWN:
+                    bufSelection = bufSelection == bufLen ? bufLen : bufSelection + 1;
+                    break;
+                case INSERT:
+                    insertAt(&buf, &bufLen, bufSelection, inputNr);
+                    inputNr = inputNr == INT64_MAX ? INT64_MIN : inputNr + 1;
+                    bufSelection++;
+                    break;
+                case DELETE:
+                    if(bufSelection == bufLen) {
+                        fprintf(stderr, "Nothing to delete at %d\n", bufSelection);
+                        break;
+                    }
+                    deleteAt(&buf, &bufLen, bufSelection);
+                    bufSelection = bufSelection == 0 ? 0 : bufSelection - 1;
+                    break;
+                case RANDOM:
+                    while(getrandom(buf, bufLen * sizeof(int64_t), 0) < 0) {
+                        if(errno == EINTR) continue;
+                        perror("getrandom");
+                        break;
+                    }
+                    for(int i = 0; i < bufLen; i++) {
+                        buf[i] %= 100;
+                    }
+                    break;
+            }
+        }
+        if(changed || e.type == Expose) {
             XClearWindow(display, window);
             int y = 10;
             for (int i = 0; i < buttonsLen; i++) {
@@ -369,119 +489,6 @@ int main(void) {
                     selectAlgoButtons[i + 1].y = selectAlgoButtons[i].y + selectAlgoButtons[i].height + 10;
                 }
             }
-        }
-        if(e.type == KeyPress) {
-            KeySym keysym = XLookupKeysym(&e.xkey, 0);
-            if(keysym == XK_Escape) {
-                break;
-            }
-            if(keysym == XK_BackSpace) {
-                inputNr /= 10;
-                fake_expose(display, window);
-                continue;
-            }
-            char key[2] = "0";
-            XLookupString(&e.xkey, key, sizeof(key), NULL, NULL);
-            if(isdigit(key[0])) {
-                if(inputNr >= 0 && inputNr < INT64_MAX / 10) {
-                    inputNr = inputNr * 10 + (key[0] - '0');
-                } else if(inputNr < 0 && inputNr > INT64_MIN / 10) {
-                    inputNr = inputNr * 10 - (key[0] - '0');
-                } else if(inputNr > 0) {
-                    inputNr = INT64_MAX;
-                } else {
-                    inputNr = INT64_MIN;
-                }
-                fake_expose(display, window);
-            } else if(key[0] == '-') {
-                if(inputNr == INT64_MIN) {
-                    inputNr = INT64_MAX;
-                } else {
-                    inputNr = -inputNr;
-                }
-                fake_expose(display, window);
-            }
-        }
-        if(e.type == ButtonPress) {
-            if(e.xbutton.button != Button1) {
-                continue;
-            }
-            int pressedButton = -1;
-            int x = e.xbutton.x;
-            int y = e.xbutton.y;
-            for(int i = 0;i < buttonsLen; i++) {
-                if(x >= buttons[i].x && x <= buttons[i].x + buttons[i].width && y >= buttons[i].y && y <= buttons[i].y + buttons[i].height) {
-                    pressedButton = i;
-                    break;
-                }
-            }
-            if(pressedButton == -1) {
-                int pressedAlgo = -1;
-                for(int i = 0;i < ALGO_LEN; i++) {
-                    if(x >= selectAlgoButtons[i].x && x <= selectAlgoButtons[i].x + selectAlgoButtons[i].width && y >= selectAlgoButtons[i].y && y <= selectAlgoButtons[i].y + selectAlgoButtons[i].height) {
-                        pressedAlgo = i;
-                        break;
-                    }
-                }
-                if(pressedAlgo != -1) {
-                    algoSelection = pressedAlgo;
-                    fake_expose(display, window);
-                }
-                continue;
-            }
-            switch(buttons[pressedButton].type) {
-                case LOAD:
-                    fprintf(stderr, "Loading from %s\n", buf_file_name);
-                    free(buf);
-                    buf = loadBuffer(&bufLen);
-                    if(bufSelection > bufLen) {
-                        bufSelection = bufLen;
-                    }
-                    break;
-                case SAVE:
-                    fprintf(stderr, "Saving to %s\n", buf_file_name);
-                    saveBuffer(buf, bufLen);
-                    break;
-                case LAUNCH:
-                    if(bufLen == 0) {
-                        fprintf(stderr, "Buffer is empty\n");
-                        break;
-                    }
-                    write_int(fork_server_fd, algoSelection);
-                    write_int(fork_server_fd, bufLen);
-                    write_(fork_server_fd, (char*)buf, bufLen * sizeof(int64_t));
-                    break;
-                case UP:
-                    bufSelection = bufSelection == 0 ? 0 : bufSelection - 1;
-                    break;
-                case DOWN:
-                    bufSelection = bufSelection == bufLen ? bufLen : bufSelection + 1;
-                    break;
-                case INSERT:
-                    insertAt(&buf, &bufLen, bufSelection, inputNr);
-                    inputNr = inputNr == INT64_MAX ? INT64_MIN : inputNr + 1;
-                    bufSelection++;
-                    break;
-                case DELETE:
-                    if(bufSelection == bufLen) {
-                        fprintf(stderr, "Nothing to delete at %d\n", bufSelection);
-                        break;
-                    }
-                    deleteAt(&buf, &bufLen, bufSelection);
-                    bufSelection = bufSelection == 0 ? 0 : bufSelection - 1;
-                    break;
-                case RANDOM:
-                    while(getrandom(buf, bufLen * sizeof(int64_t), 0) < 0) {
-                        if(errno == EINTR) continue;
-                        perror("getrandom");
-                        break;
-                    }
-                    for(int i = 0; i < bufLen; i++) {
-                        buf[i] %= 100;
-                    }
-                    break;
-            }
-            fake_expose(display, window);
         }
     }
 
