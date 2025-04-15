@@ -186,13 +186,15 @@ static bool get_swap_request(int read_fd, int write_fd, int64_t *buf, int len, i
     }
 }
 
-static void draw_num_sphere(Display *display, Window window, GC gc, XFontStruct *font, int sphereCenterX, int sphereCenterY, int radius, const char *numStr, int baseY) {
-    int numWidth = XTextWidth(font, numStr, strlen(numStr));
+static void draw_num_sphere(Display *display, Window window, GC gc, XFontStruct *font, int sphereCenterX, int sphereCenterY, int radius, int64_t nr, int baseY) {
+    char str[32];
+    const int len = sprintf(str, "%" PRId64, nr);
+    int numWidth = XTextWidth(font, str, len);
     int numHeight = font->ascent + font->descent;
     int x = sphereCenterX - numWidth / 2;
     int y = sphereCenterY - numHeight / 2;
     XDrawArc(display, window, gc, sphereCenterX - radius, baseY + sphereCenterY - radius, 2 * radius, 2 * radius, 0, 360 * 64);
-    XDrawString(display, window, gc, x, baseY + y + font->ascent, numStr, strlen(numStr));
+    XDrawString(display, window, gc, x, baseY + y + font->ascent, str, len);
 }
 
 static void erase_num_sphere(Display *display, Window window, GC gc, int sphereCenterX, int sphereCenterY, int radius, int baseY) {
@@ -265,35 +267,14 @@ static void verify_sort(int64_t *buf, int bufLen, const char *algoName) {
     fprintf(stderr, "%s: sort completed successfully\n", algoName);
 }
 
-char *get_anim_str(struct animation_state *anim, char **numStr) {
+int64_t get_anim_nr(struct animation_state *anim, int64_t *buf) {
     bool is_sphere_1 = anim->state == DOWN_1 || anim->state == RIGHT_1 || anim->state == UP_1;
-    return numStr[is_sphere_1 ? anim->sphereIdx1 : anim->sphereIdx2];
+    return buf[is_sphere_1 ? anim->sphereIdx1 : anim->sphereIdx2];
 }
 
 void run_sort(int64_t *buf, int bufLen, int algoSelection) {
     int algorithm_read_fd, algorithm_write_fd;
     launch_sorting_algorithm(algoSelection, bufLen, &algorithm_read_fd, &algorithm_write_fd);
-
-    char **numStr = reallocarray(NULL, bufLen, sizeof(char*));
-    char *strBuf = reallocarray(NULL, bufLen, 22);
-    char *bufPtr = strBuf;
-    if(!numStr) {
-        perror("reallocarray");
-        exit(1);
-    }
-    if(!strBuf) {
-        perror("reallocarray");
-        exit(1);
-    }
-    for(int i = 0; i < bufLen; i++) {
-        numStr[i] = bufPtr;
-        int len = sprintf(bufPtr, "%" PRId64, buf[i]);
-        if(len < 0) {
-            perror("sprintf");
-            exit(1);
-        }
-        bufPtr += len + 1;
-    }
 
     Display *display = XOpenDisplay(NULL);
     if(!display) {
@@ -312,10 +293,9 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
 
     int maxWidth = 0;
     for(int i = 0; i < bufLen; i++) {
-        int width = XTextWidth(font, numStr[i], strlen(numStr[i]));
-        if(width > maxWidth) {
-            maxWidth = width;
-        }
+        char str[32];
+        const int len = sprintf(str, "%" PRId64, buf[i]);
+        maxWidth = i_max(maxWidth, XTextWidth(font, str, len));
     }
     int radius = maxWidth / 2 + 5;
 
@@ -365,7 +345,7 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
 #define SPHERE_X(i) ((radius * 2 + 10) * (i) + radius + 5)
 
     for(int i = 0; i < bufLen; i++) {
-        draw_num_sphere(display, pixmap, gc, font, SPHERE_X(i), viewportHeight / 2, radius, numStr[i], baseY);
+        draw_num_sphere(display, pixmap, gc, font, SPHERE_X(i), viewportHeight / 2, radius, buf[i], baseY);
     }
 
     time_t frameDuration = 1000000 / 60;
@@ -387,7 +367,7 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
                 // animation is done, go to next phase or get next swap request
                 if(anim.sphereIdx1 != -1) {
                     erase_num_sphere(display, pixmap, erase_gc, anim.x, anim.y, radius, baseY);
-                    draw_num_sphere(display, pixmap, gc, font, anim.targetX, anim.targetY, radius, get_anim_str(&anim, numStr), baseY);
+                    draw_num_sphere(display, pixmap, gc, font, anim.targetX, anim.targetY, radius, get_anim_nr(&anim, buf), baseY);
                     anim.x = anim.targetX;
                     anim.y = anim.targetY;
                 }
@@ -397,9 +377,6 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
                         int64_t tmp_i = buf[anim.sphereIdx1];
                         buf[anim.sphereIdx1] = buf[anim.sphereIdx2];
                         buf[anim.sphereIdx2] = tmp_i;
-                        char *tmp_str = numStr[anim.sphereIdx1];
-                        numStr[anim.sphereIdx1] = numStr[anim.sphereIdx2];
-                        numStr[anim.sphereIdx2] = tmp_str;
                     }
 
                     int nextSphere1, nextSphere2;
@@ -471,7 +448,7 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
             erase_num_sphere(display, pixmap, erase_gc, anim.x, anim.y, radius, baseY);
             update_anim_position(&anim);
             focusX = (int)((double)focusX + ((double)anim.x - focusX) / 10);
-            draw_num_sphere(display, pixmap, gc, font, anim.x, anim.y, radius, get_anim_str(&anim, numStr), baseY);
+            draw_num_sphere(display, pixmap, gc, font, anim.x, anim.y, radius, get_anim_nr(&anim, buf), baseY);
             anim.progress += speed;
 
             last_time = get_time_usec();
@@ -543,8 +520,6 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
     XFreeFont(display, font);
     XDestroyWindow(display, window);
     XCloseDisplay(display);
-    free(numStr);
-    free(strBuf);
     if(animation_running) {
         // write a -1 to subprocess to prevent EOF error, if window was closed before sort finished
         // a SIGPIPE may happen if subprocess has finished already, but this process was going to exit right after anyway
