@@ -8,6 +8,7 @@
 #include <limits.h>
 #include <inttypes.h>
 #include <stdbool.h>
+#include <assert.h>
 
 #include <unistd.h>
 #include <fcntl.h>
@@ -395,10 +396,10 @@ int main(void) {
                     write_(fork_server_fd, (char*)buf, bufLen * sizeof(int64_t));
                     break;
                 case UP:
-                    bufSelection = bufSelection == 0 ? 0 : bufSelection - 1;
+                    bufSelection = i_max(0, bufSelection - 1);
                     break;
                 case DOWN:
-                    bufSelection = bufSelection == bufLen ? bufLen : bufSelection + 1;
+                    bufSelection = i_min(bufSelection + 1, bufLen);
                     break;
                 case INSERT:
                     insertAt(&buf, &bufLen, bufSelection, inputNr);
@@ -448,21 +449,14 @@ int main(void) {
             XDrawString(display, window, textGC, 10, y, textBuf, strlen(textBuf));
             y = buttons[0].y + buttons[0].height + 10 + textAreaHeight + 20 + font->ascent + font->descent + 20;
             const char *dots = "....";
-            int numStart = bufSelection;
-            int availableSpace = (windowHeight - y) / (font->ascent + font->descent + 5) - 2;
-            if(availableSpace < 1) {
-                availableSpace = 1;
-            }
-            int numEnd = numStart + availableSpace;
-            for(int i = 0;i < availableSpace / 2 && numStart > 0; i++) {
-                numStart--;
-                numEnd--;
-            }
-            if(numEnd > bufLen) {
-                numStart -= numEnd - bufLen;
-                if(numStart < 0) {
-                    numStart = 0;
-                }
+            const int availableSpace = i_max(1, (windowHeight - y) / (font->ascent + font->descent + 5) - 2);
+            int numStart = bufSelection - availableSpace / 2;
+            int numEnd = bufSelection + (availableSpace + 1) / 2;
+            if(numStart < 0) {
+                numEnd = i_min(numEnd + (-numStart), bufLen);
+                numStart = 0;
+            } else if(numEnd > bufLen) {
+                numStart = i_max(numStart - (numEnd - bufLen), 0);
                 numEnd = bufLen;
             }
             if(numStart > 0) {
@@ -472,7 +466,8 @@ int main(void) {
             y += font->ascent + font->descent + 5;
             int arrowX;
             int arrowY;
-            for(int i = numStart < 0 ? 0 : numStart; i < numEnd && i < bufLen; i++) {
+            assert(numStart >= 0 && numEnd <= bufLen);
+            for(int i = numStart; i < numEnd && i < bufLen; i++) {
                 sprintf(textBuf, "%" PRId64, buf[i]);
                 XDrawString(display, window, i == bufSelection ? selectedTextGC : textGC, 10, y, textBuf, strlen(textBuf));
                 if(i == bufSelection) {

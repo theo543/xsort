@@ -315,11 +315,7 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
     int viewportHeight = (radius * 2 + 10) * 3;
     int statusPaneHeight = font->ascent + font->descent + 10;
     int windowHeight = viewportHeight + statusPaneHeight;
-    const int minWidth = 800;
-    int windowWidth = (10 * (radius * 2 + 10) + 10);
-    if(windowWidth < minWidth) {
-        windowWidth = minWidth;
-    }
+    int windowWidth = i_max(800, 10 * (radius * 2 + 10) + 10);
 
     Window window = XCreateSimpleWindow(display, DefaultRootWindow(display), 0, 0, windowWidth, windowHeight, 0, blackColor, whiteColor);
     char titleBuf[128];
@@ -481,13 +477,9 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
         if(widthDiff < 0) {
             widthDiff = 0;
         }
-        int minFocusX = fullWidth / 2 - widthDiff / 2;
-        int maxFocusX = fullWidth / 2 + widthDiff / 2;
-        if(focusX < minFocusX) {
-            focusX = minFocusX;
-        } else if(focusX > maxFocusX) {
-            focusX = maxFocusX;
-        }
+        const int minFocusX = fullWidth / 2 - widthDiff / 2;
+        const int maxFocusX = fullWidth / 2 + widthDiff / 2;
+        focusX = i_max(minFocusX, i_min(focusX, maxFocusX));
         if(e.type == KeyPress) {
             KeySym keysym = XLookupKeysym(&e.xkey, 0);
             if(keysym == XK_Escape) {
@@ -496,8 +488,8 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
             if(keysym == XK_plus || keysym == XK_KP_Add) {
                 speed++;
                 changed = true;
-            } else if((keysym == XK_minus || keysym == XK_KP_Subtract) && speed > 0) {
-                speed--;
+            } else if(keysym == XK_minus || keysym == XK_KP_Subtract) {
+                speed = i_max(0, speed - 1);
                 changed = true;
             }
         }

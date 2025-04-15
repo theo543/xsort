@@ -67,3 +67,11 @@ int read_int(int fd) {
     memcpy(&data, buf, sizeof(int));
     return data;
 }
+
+int i_min(int a, int b) {
+    return a < b ? a : b;
+}
+
+int i_max(int a, int b) {
+    return a > b ? a : b;
+}
