@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include <unistd.h>
+#include <libgen.h>
 
 #include "utils.h"
 
@@ -74,4 +75,29 @@ int i_min(int a, int b) {
 
 int i_max(int a, int b) {
     return a > b ? a : b;
+}
+
+static char *instance_name = "";
+
+void set_instance_name(int argc, char **argv) {
+    // ICCCM standard: instance name is set with "-name NAME" flag, or fallback to RESOURCE_NAME environment variable, or fallback to argv[0]
+    for(int i = 1;i < argc - 1;i++) {
+        if(strcmp(argv[i], "-name") == 0) {
+            instance_name = argv[i + 1];
+            return;
+        }
+    }
+    char *name = getenv("RESOURCE_NAME");
+    if(name != NULL) {
+        instance_name = name;
+        return;
+    }
+    if(argc > 0) {
+        instance_name = basename(argv[0]);
+        return;
+    }
+}
+
+char *get_instance_name(void) {
+    return instance_name;
 }

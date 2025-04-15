@@ -6,3 +6,5 @@ void write_int(int fd, int data);
 int read_int(int fd);
 int i_min(int a, int b);
 int i_max(int a, int b);
+void set_instance_name(int argc, char **argv);
+char *get_instance_name(void);

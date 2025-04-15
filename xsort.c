@@ -216,7 +216,8 @@ static bool in_bounds(int x, int y, struct Button *btn) {
     return x >= btn->x && x <= (btn->x + btn->width) && y >= btn->y && y <= (btn->y + btn->height);
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    set_instance_name(argc, argv);
     signal(SIGCHLD, SIG_IGN);
     int fork_server_fd = launch_fork_server();
 
@@ -279,7 +280,18 @@ int main(void) {
 
     int windowHeight = 400;
     Window window = XCreateSimpleWindow(display, DefaultRootWindow(display), 0, 0, 400, windowHeight, 0, blackColor, lightGrayColor);
-    XStoreName(display, window, "XSort");
+    char *name = "XSort";
+    XStoreName(display, window, name);
+    XClassHint *classHint = XAllocClassHint();
+    if(classHint) {
+        classHint->res_name = get_instance_name();
+        classHint->res_class = name;
+        XSetClassHint(display, window, classHint);
+        XFree(classHint);
+    } else {
+        fprintf(stderr, "XAllocClassHint failed\n");
+    }
+
     XSelectInput(display, window, StructureNotifyMask);
     XMapWindow(display, window);
 

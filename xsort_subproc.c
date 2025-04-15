@@ -11,6 +11,7 @@
 
 #include <unistd.h>
 #include <X11/Xlib.h>
+#include <X11/Xutil.h>
 #include <X11/keysym.h>
 
 #include "utils.h"
@@ -326,6 +327,15 @@ void run_sort(int64_t *buf, int bufLen, int algoSelection) {
     Window window = XCreateSimpleWindow(display, DefaultRootWindow(display), 0, 0, windowWidth, windowHeight, 0, blackColor, whiteColor);
     char titleBuf[128];
     snprintf(titleBuf, sizeof(titleBuf), "XSort - sorting %d numbers with %s", bufLen, algo_names[algoSelection]);
+    XClassHint *classHint = XAllocClassHint();
+    if(classHint) {
+        classHint->res_name = get_instance_name();
+        classHint->res_class = "XSort (subprocess)";
+        XSetClassHint(display, window, classHint);
+        XFree(classHint);
+    } else {
+        fprintf(stderr, "XAllocClassHint failed\n");
+    }
     XStoreName(display, window, titleBuf);
     XSelectInput(display, window, StructureNotifyMask);
     GC gc = XCreateGC(display, window, 0, NULL);
