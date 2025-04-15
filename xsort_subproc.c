@@ -153,6 +153,7 @@ static const sort_algo sort_algos[ALGO_LEN] = {
     selection_sort,
     quick_sort,
     heap_sort,
+    NULL,
 };
 const char * const algo_names[ALGO_LEN] = {
     "Bubble Sort",
@@ -160,6 +161,7 @@ const char * const algo_names[ALGO_LEN] = {
     "Selection Sort",
     "Quick Sort",
     "Heap Sort",
+    "All",
 };
 
 static bool get_swap_request(int read_fd, int write_fd, int64_t *buf, int len, int *i, int *j, int *comparisions) {
@@ -224,7 +226,7 @@ static void update_anim_position(struct animation_state *anim) {
 }
 
 static void launch_sorting_algorithm(int algoSelection, int bufLen, int *read_fd, int *write_fd) {
-    assert(algoSelection >= 0 && algoSelection < ALGO_LEN);
+    assert(algoSelection >= 0 && algoSelection < ALGO_LEN - 1);
     sort_algo sort = sort_algos[algoSelection];
 
     int parent_to_child[2];

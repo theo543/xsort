@@ -163,6 +163,17 @@ static int64_t *loadBuffer(int *bufLen) {
     return NULL;
 }
 
+static void spawn_sort(char *buf, int bufLen, int algoSelection) {
+    pid_t sort_pid = fork();
+    if(sort_pid < 0) {
+        perror("fork");
+    }
+    if(sort_pid == 0) {
+        run_sort((int64_t*)buf, bufLen, algoSelection);
+        exit(0);
+    }
+}
+
 static int launch_fork_server(void) {
     int fork_server_fd[2];
     pipe_(fork_server_fd);
@@ -181,6 +192,7 @@ static int launch_fork_server(void) {
         int algoSelection = read_int(fork_server_fd[0]);
         if(algoSelection == -1) {
             close_(fork_server_fd[0]);
+            if(buf) free(buf);
             exit(0);
         }
         int bufLen = read_int(fork_server_fd[0]);
@@ -189,17 +201,13 @@ static int launch_fork_server(void) {
             perror("reallocarray");
             exit(1);
         }
-        read_(fork_server_fd[0], (char*)buf, bufLen * sizeof(int64_t));
-        pid_t sort_pid = fork();
-        if(sort_pid < 0) {
-            perror("fork");
-            exit(1);
-        }
-        if(sort_pid == 0) {
-            close_(fork_server_fd[0]);
-            run_sort((int64_t*)buf, bufLen, algoSelection);
-            free(buf);
-            exit(0);
+        read_(fork_server_fd[0], buf, bufLen * sizeof(int64_t));
+        if(algoSelection != ALGO_LEN - 1) {
+            spawn_sort(buf, bufLen, algoSelection);
+        } else {
+            for(int i = 0; i < ALGO_LEN - 1; i++) {
+                spawn_sort(buf, bufLen, i);
+            }
         }
     }
 }
