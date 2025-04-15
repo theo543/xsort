@@ -260,7 +260,8 @@ int main(void) {
         return 1;
     }
 
-    Window window = XCreateSimpleWindow(display, DefaultRootWindow(display), 0, 0, 400, 400, 0, blackColor, lightGrayColor);
+    int windowHeight = 400;
+    Window window = XCreateSimpleWindow(display, DefaultRootWindow(display), 0, 0, 400, windowHeight, 0, blackColor, lightGrayColor);
     XStoreName(display, window, "XSort");
     XSelectInput(display, window, StructureNotifyMask);
     XMapWindow(display, window);
@@ -280,7 +281,7 @@ int main(void) {
     XSetFont(display, lineGC, font->fid);
     XSetFont(display, borderGC, font->fid);
 
-    XSelectInput(display, window, ExposureMask | KeyPressMask | ButtonPressMask);
+    XSelectInput(display, window, ExposureMask | KeyPressMask | ButtonPressMask | StructureNotifyMask);
     Atom WM_DELETE_WINDOW = XInternAtom(display, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(display, window, &WM_DELETE_WINDOW, 1);
 
@@ -304,6 +305,10 @@ int main(void) {
         XNextEvent(display, &e);
         if(e.type == ClientMessage && (Atom)e.xclient.data.l[0] == WM_DELETE_WINDOW) {
             break;
+        }
+        if(e.type == ConfigureNotify && e.xconfigure.height != windowHeight) {
+            windowHeight = e.xconfigure.height;
+            changed = true;
         }
         if(e.type == KeyPress) {
             KeySym keysym = XLookupKeysym(&e.xkey, 0);
@@ -444,12 +449,20 @@ int main(void) {
             y = buttons[0].y + buttons[0].height + 10 + textAreaHeight + 20 + font->ascent + font->descent + 20;
             const char *dots = "....";
             int numStart = bufSelection;
-            int numEnd = bufSelection + 10;
-            for(int i = 0;i < 5 && numStart > 0; i++) {
+            int availableSpace = (windowHeight - y) / (font->ascent + font->descent + 5) - 2;
+            if(availableSpace < 1) {
+                availableSpace = 1;
+            }
+            int numEnd = numStart + availableSpace;
+            for(int i = 0;i < availableSpace / 2 && numStart > 0; i++) {
                 numStart--;
                 numEnd--;
             }
             if(numEnd > bufLen) {
+                numStart -= numEnd - bufLen;
+                if(numStart < 0) {
+                    numStart = 0;
+                }
                 numEnd = bufLen;
             }
             if(numStart > 0) {
