@@ -137,11 +137,12 @@ static int64_t *loadBuffer(int *bufLen) {
                 fprintf(stderr, "Buffer size too large\n");
                 goto fail2;
             }
-            buf = reallocarray(buf, len == 0 ? 1 : len << 1, sizeof(int64_t));
-            if(!buf) {
+            int64_t *buf_ = reallocarray(buf, len == 0 ? 1 : len << 1, sizeof(int64_t));
+            if(!buf_) {
                 perror("reallocarray");
                 goto fail2;
             }
+            buf = buf_;
         }
         buf[len++] = num;
     }
